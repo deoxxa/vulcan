@@ -103,6 +103,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Ask controller for instructions
 	instructions, err := p.controller.GetInstructions(req)
 	if err != nil {
+		glog.Error("Controller failed:", err)
 		p.replyError(err, w, req)
 		return
 	}
