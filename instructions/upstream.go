@@ -8,6 +8,11 @@ import (
 // Upstream is HTTP server that will actually serve
 // the request that would be proxied
 type Upstream struct {
+	Host     string
+	Port     string
+	Protocol string
+	Id       string
+	Path     string
 	// URL of the upstream, would be used for throttling
 	Url *url.URL
 	// Upstreams can be rate controlled, if at least one rate

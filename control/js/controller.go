@@ -23,33 +23,49 @@ func (ctrl *JsController) GetInstructions(req *http.Request) (instr *ProxyInstru
 			instr = nil
 		}
 	}()
-	Otto := otto.New()
-	Otto.Set("getKey", func(call otto.FunctionCall) otto.Value {
-		right, _ := call.Argument(0).ToString()
-		value, err := ctrl.DiscoveryService.Get(right)
-		glog.Infof("Got %v, %s", value, err)
-		result, _ := Otto.ToValue(value)
-		return result
-	})
-
-	value, err := Otto.Run(`
-         [getKey("upstream")]
-     `)
+	code, err := ctrl.getCode()
 	if err != nil {
 		return nil, err
 	}
+	Otto := otto.New()
+	ctrl.registerBuiltins(Otto)
+
+	value, err := Otto.Run(code)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.resultToInstructions(&value)
+}
+
+func (ctrl *JsController) getCode() (string, error) {
+	return `result = {upstreams: [{url: "http://localhost:5000"}]}`, nil
+}
+
+func (ctrl *JsController) resultToInstructions(value *otto.Value) (*ProxyInstructions, error) {
 	obj, err := value.Export()
 	if err != nil {
 		return nil, err
 	}
-	values := obj.([]interface{})
-	upstream, _ := values[0].(string)
-
-	u, err := NewUpstream(upstream, []*Rate{}, map[string][]string{})
-	if err != nil {
-		return nil, err
+	glog.Infof("Got value %#v -exported into-> %#v", value, obj)
+	response, ok := obj.(map[string]interface{})
+	if !ok {
+		glog.Errorf("Invalid response from json server, expected dictionary, got %#v", obj)
+		return nil, fmt.Errorf("Internal error")
 	}
-	return &ProxyInstructions{
-		Upstreams: []*Upstream{u},
-	}, nil
+
+	return ProxyInstructionsFromObject(response)
+}
+
+func (ctrl *JsController) registerBuiltins(o *otto.Otto) {
+	ctrl.addDiscoveryService(o)
+}
+
+func (ctrl *JsController) addDiscoveryService(o *otto.Otto) {
+	o.Set("discover", func(call otto.FunctionCall) otto.Value {
+		right, _ := call.Argument(0).ToString()
+		value, err := ctrl.DiscoveryService.Get(right)
+		glog.Infof("Got %v, %s", value, err)
+		result, _ := o.ToValue(value)
+		return result
+	})
 }

@@ -39,34 +39,75 @@ type UpstreamObj struct {
 }
 
 func ProxyInstructionsFromJson(bytes []byte) (*ProxyInstructions, error) {
-	var r ProxyInstructionsObj
+	var r interface{}
 	err := json.Unmarshal(bytes, &r)
 	if err != nil {
 		return nil, err
 	}
-
-	upstreams, err := upstreamsFromJsonList(r.Upstreams)
-	if err != nil {
-		return nil, err
-	}
-
-	tokens, err := tokensFromJsonList(r.Tokens)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewProxyInstructions(&r.Failover, tokens, upstreams, r.Headers)
+	return ProxyInstructionsFromObj(r)
 }
 
-func upstreamsFromJsonList(inUpstreams []UpstreamObj) ([]*Upstream, error) {
-	upstreams := make([]*Upstream, len(inUpstreams))
-	for i, upstreamObj := range inUpstreams {
-		rates, err := ratesFromJsonList(upstreamObj.Rates)
+func ProxyInstructionsFromObj(in interface{}) (*ProxyInstructions, error) {
+	obj, ok := in.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("Expected dictionary as instructions")
+	}
+
+	// Parse upstreams
+	upstreamsObj, exists := obj["upstreams"]
+	if !exists {
+		return nil, fmt.Errorf("Expected upstreams")
+	}
+	upstreamsList, ok := upstreamsObj.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("Upstreams should be a list")
+	}
+	upstreams, err := upstreamsFromList(upstreamsList)
+	if err != nil {
+		return nil, err
+	}
+
+	// Rate-limiting tokens
+	tokensObj, exists := obj["tokens"]
+	if !exists {
+		return nil, fmt.Errorf("Expected tokens")
+	}
+	tokensList, ok := tokensObj.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("Tokens should be a list")
+	}
+	tokens, err := tokensFromList(tokensList)
+	if err != nil {
+		return nil, err
+	}
+
+	// Failover instructions
+	var failover *Failover
+	failoverObj, exists := obj["failover"]
+	if exists {
+		failover, err = failoverFromObj(failoverObj)
 		if err != nil {
 			return nil, err
 		}
-		upstream, err := NewUpstream(
-			upstreamObj.Url, rates, upstreamObj.Headers)
+	}
+
+	// Request headers
+	var headers http.Header
+	headersObj, exists := obj["headers"]
+	if exists {
+		failover, err = headersFromObj(headersObj)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return NewProxyInstructions(failover, tokens, upstreams, headers)
+}
+
+func upstreamsFromList(inUpstreams []interface{}) ([]*Upstream, error) {
+	upstreams := make([]*Upstream, len(inUpstreams))
+	for i, upstreamObj := range inUpstreams {
+		upstream, err := upstreamFromObj(upstreamObj)
 		if err != nil {
 			return nil, err
 		}
@@ -75,32 +116,27 @@ func upstreamsFromJsonList(inUpstreams []UpstreamObj) ([]*Upstream, error) {
 	return upstreams, nil
 }
 
-func tokensFromJsonList(inTokens []TokenObj) ([]*Token, error) {
+func upstreamFromObj(in interface{}) (*Upstream, error) {
+	obj, ok := in.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("Upstream should be dictionary")
+	}
+	url, ok := obj["url"]
+	if !ok {
+		return nil, fmt.Errorf("Expected url")
+	}
+}
+
+func tokensFromList(inTokens []interface{}) ([]*Token, error) {
 	tokens := make([]*Token, len(inTokens))
 	for i, tokenObj := range inTokens {
-		rates, err := ratesFromJsonList(tokenObj.Rates)
-		if err != nil {
-			return nil, err
-		}
-		token, err := NewToken(tokenObj.Id, rates)
+		rates, err := tokenFromObj(tokenObj)
 		if err != nil {
 			return nil, err
 		}
 		tokens[i] = token
 	}
 	return tokens, nil
-}
-
-func ratesFromJsonList(inRates []RateObj) ([]*Rate, error) {
-	rates := make([]*Rate, len(inRates))
-	for i, rateObj := range inRates {
-		rate, err := rateFromObj(rateObj)
-		if err != nil {
-			return nil, err
-		}
-		rates[i] = rate
-	}
-	return rates, nil
 }
 
 func rateFromObj(obj RateObj) (*Rate, error) {

@@ -1,0 +1,27 @@
+{
+    "variables": {
+        "account_id": "1",
+    },
+
+    "rates": {
+        "$request.password": "1 req/second",
+        "$request.client_ip": {"requests": 1, "period": "second"},
+        "$all": "1000 req/second",
+        "account_id": ["1 req/second", "10 MB/second", {"MB": 10, "period": "hour"}],
+    },
+
+    "failover": {
+        "active": true,
+        "codes": [400, 800],
+    },
+
+    "upstreams": [
+        "google.com:8080",
+        {
+            "server": "https://google.com:8080",
+            "rewrite-path": "/v2/upstreams",
+            "add-headers": {"X-Sasha": ["a"], "X-Serega": "b"},
+            "remove-headers": ["X-Mailgun-Account-Id"],            
+        }
+    ]
+}
