@@ -18,7 +18,9 @@
     "upstreams": [
         "google.com:8080",
         {
-            "server": "https://google.com:8080",
+            "host": "google.com",
+            "port": 8080,
+            "protocol": "http",
             "rewrite-path": "/v2/upstreams",
             "add-headers": {"X-Sasha": ["a"], "X-Serega": "b"},
             "remove-headers": ["X-Mailgun-Account-Id"],            
