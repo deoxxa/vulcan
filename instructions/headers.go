@@ -29,3 +29,24 @@ func HeadersFromObj(in interface{}) (http.Header, error) {
 	}
 	return headers, nil
 }
+
+func AddRemoveHeadersFromDict(in map[string]interface{}) (http.Header, http.Header, error) {
+	addHeadersI, exists := in["add-headers"]
+	var addHeaders http.Header
+	if exists {
+		addHeaders, err := HeadersFromObj(addHeadersI)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	removeHeadersI, exists := in["remove-headers"]
+	var removeHeaders http.Header
+	if exists {
+		removeHeaders, err := HeadersFromObj(removeHeadersI)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return addHeaders, removeHeaders
+}

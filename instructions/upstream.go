@@ -63,7 +63,7 @@ func NewUpstreamFromUrl(url *url.URL) (*Upstream, error) {
 	return NewUpstream(url.Scheme, host, port, url.Path, nil, nil)
 }
 
-func NewUpstreamFromMap(in map[string]interface{}) (*Upstream, error) {
+func NewUpstreamFromDict(in map[string]interface{}) (*Upstream, error) {
 	schemeI, exists := in["scheme"]
 	if !exists {
 		return nil, fmt.Errorf("Expected scheme")
@@ -100,22 +100,9 @@ func NewUpstreamFromMap(in map[string]interface{}) (*Upstream, error) {
 		}
 	}
 
-	addHeadersI, exists := in["add-headers"]
-	var addHeaders http.Header
-	if exists {
-		addHeaders, err := HeadersFromObj(addHeadersI)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	removeHeadersI, exists := in["remove-headers"]
-	var removeHeaders http.Header
-	if exists {
-		removeHeaders, err := HeadersFromObj(removeHeadersI)
-		if err != nil {
-			return nil, err
-		}
+	addHeaders, removeHeaders, err := AddRemoveHeadersFromDict(in)
+	if err != nil {
+		return nil, err
 	}
 
 	return NewUpstream(scheme, host, int(port), rewritePath, addHeaders, removeHeaders)
@@ -137,7 +124,7 @@ func (u *Upstream) String() string {
 func NewUpstreamFromObj(in interface{}) (*Upstream, error) {
 	switch val := in.(type) {
 	case map[string]interface{}:
-		return NewUpstreamFromMap(val)
+		return NewUpstreamFromDict(val)
 	case string:
 		return NewUpstreamFromString(val)
 	default:
