@@ -34,6 +34,7 @@ deps:
 	go install github.com/axw/gocov/gocov
 	go get -v -u github.com/golang/glog
 	go get -v -u github.com/mailgun/glogutils
+	go get -v -u github.com/mailgun/minheap
 	go get -v -u github.com/axw/gocov
 	go get -v -u launchpad.net/gocheck
 	go get -v -u github.com/mailgun/gocql
