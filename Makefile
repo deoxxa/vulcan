@@ -3,16 +3,19 @@ test: clean
 
 deps:
 
-	go get -v -u launchpad.net/gocheck
 	go get -v -u github.com/mailgun/gotools-log
 	go get -v -u github.com/mailgun/gotools-time
 	go get -v -u github.com/mailgun/ttlmap
+	go get gopkg.in/check.v1
 
 clean:
 	find . -name flymake_* -delete
 
 test-package: clean
 	go test -v ./$(p)
+
+bench: clean
+	go test -test.benchmem  -gocheck.b -test.bench=.
 
 cover-package: clean
 	go test -v ./$(p)  -coverprofile=/tmp/coverage.out
