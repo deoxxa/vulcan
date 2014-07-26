@@ -84,6 +84,10 @@ func (e *trieNode) isPatternMatcher() bool {
 	return e.matcher != nil
 }
 
+func (e *trieNode) isCharMatcher() bool {
+	return e.char != 0
+}
+
 func (e *trieNode) String() string {
 	self := ""
 	if e.matcher != nil {
@@ -124,7 +128,7 @@ func (e *trieNode) merge(o *trieNode) (*trieNode, error) {
 	}
 
 	children := make([]*trieNode, 0, len(e.children))
-	merged := make(map[byte]bool)
+	merged := make(map[*trieNode]bool)
 
 	// First, find the nodes with similar keys and merge them
 	for _, c := range e.children {
@@ -135,7 +139,8 @@ func (e *trieNode) merge(o *trieNode) (*trieNode, error) {
 				if err != nil {
 					return nil, err
 				}
-				merged[c.char] = true
+				merged[c] = true
+				merged[c2] = true
 				children = append(children, m)
 			}
 		}
@@ -143,13 +148,13 @@ func (e *trieNode) merge(o *trieNode) (*trieNode, error) {
 
 	// Next, append the keys that haven't been merged
 	for _, c := range e.children {
-		if !merged[c.char] {
+		if !merged[c] {
 			children = append(children, c)
 		}
 	}
 
 	for _, c := range o.children {
-		if !merged[c.char] {
+		if !merged[c] {
 			children = append(children, c)
 		}
 	}
@@ -272,28 +277,46 @@ func (s *stringMatcher) equals(other patternMatcher) bool {
 	return ok && other.getName() == s.getName()
 }
 
+func (e *trieNode) matchNode(offset int, path string) (bool, int) {
+	// We are out of bounds
+	if offset > len(path)-1 {
+		return false, -1
+	}
+	if offset == -1 || (e.isCharMatcher() && e.char == path[offset]) {
+		return true, offset + 1
+	}
+	if e.isPatternMatcher() {
+		result, newOffset := e.matcher.match(offset, path)
+		if result != nil {
+			return true, newOffset
+		}
+	}
+	return false, -1
+}
+
+func (e *trieNode) match(offset int, path string, r request.Request) location.Location {
+	matched, newOffset := e.matchNode(offset, path)
+	if !matched {
+		return nil
+	}
+	// This is a leaf node and we are at the last character of the pattern
+	if e.result != nil && newOffset == len(path) {
+		return e.result.match(r)
+	}
+	// Check for the match in child nodes
+	for _, c := range e.children {
+		if loc := c.match(newOffset, path, r); loc != nil {
+			return loc
+		}
+	}
+	return nil
+}
+
 // Grabs value until separator or next string
 func grabValue(offset int, path string) (string, int) {
 	index := strings.Index(path[offset:], "/")
 	if index == -1 {
-		return path, offset + len(path)
+		return path[offset:], len(path)
 	}
 	return path[offset:index], offset + index
-}
-
-func (e *trieNode) match(offset int, path string, r request.Request) location.Location {
-	// We are the root or the current key matches
-	if offset == -1 || path[offset] == e.char {
-		// This is a leaf node and we are at the last character of the pattern
-		if e.result != nil && offset == len(path)-1 {
-			return e.result.match(r)
-		}
-		// Check for the match in child nodes
-		for _, c := range e.children {
-			if loc := c.match(offset+1, path, r); loc != nil {
-				return loc
-			}
-		}
-	}
-	return nil
 }

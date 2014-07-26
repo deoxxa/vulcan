@@ -114,18 +114,76 @@ root
 
 	c.Assert(t3.match(makeReq("http://google.com/aa")), Equals, l1.location)
 	c.Assert(t3.match(makeReq("http://google.com/a")), Equals, l2.location)
+	c.Assert(t3.match(makeReq("http://google.com/b")), Equals, nil)
 }
 
-func (s *TrieSuite) TestMergeCases(c *C) {
+func (s *TrieSuite) TestMergeTriesWithCommonParameter(c *C) {
+	t1, l1 := makeTrie(c, "/a/<string:name>/b", makeLoc("loc1"))
+	t2, l2 := makeTrie(c, "/a/<string:name>/c", makeLoc("loc2"))
+
+	t3, err := t1.merge(t2)
+	c.Assert(err, IsNil)
+
+	expected := `
+root
+ node(/)
+  node(a)
+   node(/)
+    node(<string:name>)
+     node(/)
+      leaf(b)
+      leaf(c)
+`
+	c.Assert(printTrie(t3.(*trie)), Equals, expected)
+
+	c.Assert(t3.match(makeReq("http://google.com/a/bla/b")), Equals, l1.location)
+	c.Assert(t3.match(makeReq("http://google.com/a/bla/c")), Equals, l2.location)
+	c.Assert(t3.match(makeReq("http://google.com/a/")), IsNil)
+}
+
+func (s *TrieSuite) TestMergeTriesWithDivergedParameter(c *C) {
+	t1, l1 := makeTrie(c, "/a/<string:name1>/b", makeLoc("loc1"))
+	t2, l2 := makeTrie(c, "/a/<string:name2>/c", makeLoc("loc2"))
+
+	t3, err := t1.merge(t2)
+	c.Assert(err, IsNil)
+
+	expected := `
+root
+ node(/)
+  node(a)
+   node(/)
+    node(<string:name1>)
+     node(/)
+      leaf(b)
+    node(<string:name2>)
+     node(/)
+      leaf(c)
+`
+	c.Assert(printTrie(t3.(*trie)), Equals, expected)
+
+	c.Assert(t3.match(makeReq("http://google.com/a/bla/b")), Equals, l1.location)
+	c.Assert(t3.match(makeReq("http://google.com/a/bla/c")), Equals, l2.location)
+	c.Assert(t3.match(makeReq("http://google.com/a/")), IsNil)
+}
+
+func (s *TrieSuite) TestMergeAndMatchCases(c *C) {
 	testCases := []struct {
 		trees    []string
 		url      string
 		expected string
 	}{
+		// Choosing longest path
 		{
 			[]string{"/v2/domains/", "/v2/domains/domain1"},
 			"http://google.com/v2/domains/domain1",
 			"/v2/domains/domain1",
+		},
+		// Named parameters
+		{
+			[]string{"/v1/domains/<string:name>", "/v2/domains/<string:name>"},
+			"http://google.com/v2/domains/domain1",
+			"/v2/domains/<string:name>",
 		},
 	}
 	for _, tc := range testCases {
