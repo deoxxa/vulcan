@@ -25,14 +25,57 @@ func (s *TrieSuite) TestParseTrieSuccess(c *C) {
 	c.Assert(t.match(makeReq("http://google.com")), Equals, l.location)
 }
 
-func (s *TrieSuite) TestPrintTrie(c *C) {
-	t, _ := makeTrie(c, "/a", makeLoc("loc1"))
-	expected := `
+func (s *TrieSuite) testPathToTrie(c *C, path, trie string) {
+	t, _ := makeTrie(c, path, makeLoc("loc1"))
+	c.Assert(printTrie(t), Equals, trie)
+}
+
+func (s *TrieSuite) TestPrintTries(c *C) {
+	// Simple path
+	s.testPathToTrie(c, "/a", `
 root
  node(/)
   leaf(a)
-`
-	c.Assert(printTrie(t), Equals, expected)
+`)
+
+	// Path wit default string parameter
+	s.testPathToTrie(c, "/<param1>", `
+root
+ node(/)
+  leaf(<string:param1>)
+`)
+
+	// Path with trailing parameter
+	s.testPathToTrie(c, "/m/<string:param1>", `
+root
+ node(/)
+  node(m)
+   node(/)
+    leaf(<string:param1>)
+`)
+
+	// Path with  parameter in the middle
+	s.testPathToTrie(c, "/m/<string:param1>/a", `
+root
+ node(/)
+  node(m)
+   node(/)
+    node(<string:param1>)
+     node(/)
+      leaf(a)
+`)
+
+	// Path with two parameters
+	s.testPathToTrie(c, "/m/<string:param1>/<string:param2>", `
+root
+ node(/)
+  node(m)
+   node(/)
+    node(<string:param1>)
+     node(/)
+      leaf(<string:param2>)
+`)
+
 }
 
 func (s *TrieSuite) TestMergeTriesCommonPrefix(c *C) {
@@ -154,14 +197,11 @@ func printTrieNode(e *trieNode) string {
 }
 
 func printTrieNodeInner(b *bytes.Buffer, e *trieNode, offset int) {
-	padding := strings.Repeat(" ", offset)
-	if e.isLeaf() {
-		fmt.Fprintf(b, "%sleaf(%c)\n", padding, rune(e.key))
-	} else if e.isRoot() {
-		fmt.Fprintf(b, "\nroot\n")
-	} else {
-		fmt.Fprintf(b, "%snode(%c)\n", padding, rune(e.key))
+	if offset == 0 {
+		fmt.Fprintf(b, "\n")
 	}
+	padding := strings.Repeat(" ", offset)
+	fmt.Fprintf(b, "%s%s\n", padding, e.String())
 	if len(e.children) != 0 {
 		for _, c := range e.children {
 			printTrieNodeInner(b, c, offset+1)
