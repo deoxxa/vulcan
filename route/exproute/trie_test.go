@@ -326,7 +326,6 @@ func (s *TrieSuite) BenchmarkMatching(c *C) {
 		t = out.(*trie)
 	}
 	req := makeReq(fmt.Sprintf("http://google.com/%s", rndString.MakePath(20, 10)))
-
 	for i := 0; i < c.N; i++ {
 		t.match(req)
 	}

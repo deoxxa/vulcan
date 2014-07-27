@@ -8,35 +8,43 @@ import (
 	"strings"
 )
 
+// Regular expression to match url parameters
 var reParam *regexp.Regexp
 
 func init() {
 	reParam = regexp.MustCompile("^<([^/]+)>")
 }
 
+// Trie http://en.wikipedia.org/wiki/Trie for url matching with support for named parameters
 type trie struct {
 	root *trieNode
 }
 
-func parseTrie(pattern string, matchNode node) (*trie, error) {
+// Takes the expression with url and the node that corresponds to this expression
+// and returns parsed trie
+func parseTrie(expression string, matchNode node) (*trie, error) {
 	t := &trie{
 		root: &trieNode{},
 	}
-	if len(pattern) == 0 {
-		return nil, fmt.Errorf("Empty pattern")
+	if len(expression) == 0 {
+		return nil, fmt.Errorf("Empty URL expression")
 	}
-	err := t.root.parseExpression(-1, pattern, matchNode)
+	err := t.root.parseExpression(-1, expression, matchNode)
 	if err != nil {
 		return nil, err
 	}
 	return t, nil
 }
 
+// Tries can merge with other tries
 func (t *trie) canMerge(n node) bool {
 	_, ok := n.(*trie)
 	return ok
 }
 
+// Merge takes the other trie and modifies itself to match the passed trie as well.
+// Note that trie passed as a parameter can be only simple trie without multiple branches per node, e.g. a->b->c->
+// Trie on the left is "accumulating" trie that grows.
 func (p *trie) merge(n node) (node, error) {
 	other, ok := n.(*trie)
 	if !ok {
@@ -49,6 +57,8 @@ func (p *trie) merge(n node) (node, error) {
 	return &trie{root: root}, nil
 }
 
+// Removes the simple trie from the node, can work only with simple tries without multiple branches per node,
+// e.g. h->e->l->l->o can be removed, trie that matches multiple words can not be removed and remove operation will result in error.
 func (p *trie) remove(n node) (node, error) {
 	other, ok := n.(*trie)
 	if !ok {
@@ -61,6 +71,8 @@ func (p *trie) remove(n node) (node, error) {
 	return &trie{root: root}, nil
 }
 
+// Takes the request and returns the location if the request path matches any of it's paths
+// returns nil if none of the requests matches
 func (p *trie) match(r request.Request) location.Location {
 	if p.root == nil {
 		return nil
@@ -74,13 +86,15 @@ func (p *trie) match(r request.Request) location.Location {
 }
 
 type trieNode struct {
-	// Matching character, can be empty
+	// Matching character, can be empty in case if it's a root node
+	// or node with a pattern matcher
 	char byte
-	// Optional children of this node
+	// Optional children of this node, can be empty if it's a leaf node
 	children []*trieNode
 	// If present, means that this node is a pattern matcher
 	matcher patternMatcher
-	// If present it means this node contains potential match
+	// If present it means this node contains potential match, and this is a leaf node.
+	// TODO: introduce explicit leaf nodes
 	result node
 }
 
