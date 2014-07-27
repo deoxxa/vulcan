@@ -49,6 +49,18 @@ func (p *trie) merge(n node) (node, error) {
 	return &trie{root: root}, nil
 }
 
+func (p *trie) remove(n node) (node, error) {
+	other, ok := n.(*trie)
+	if !ok {
+		return nil, fmt.Errorf("Can't remove %T from %T", n, p)
+	}
+	root, err := p.root.remove(other.root)
+	if err != nil {
+		return nil, err
+	}
+	return &trie{root: root}, nil
+}
+
 func (p *trie) match(r request.Request) location.Location {
 	if p.root == nil {
 		return nil
@@ -110,13 +122,50 @@ func (e *trieNode) equals(o *trieNode) bool {
 		((e.matcher != nil && o.matcher != nil) && e.matcher.equals(o.matcher)) // both nodes have equal matchers
 }
 
-func (e *trieNode) merge(o *trieNode) (*trieNode, error) {
-	if e.char != o.char {
-		return nil, fmt.Errorf("Can't merge nodes with different keys: %s and %s", e.char, o.char)
+func (e *trieNode) remove(o *trieNode) (*trieNode, error) {
+	if e.isLeaf() {
+		return nil, nil
+	}
+	if o.isLeaf() {
+		return nil, fmt.Errorf("Failed to find path")
 	}
 
+	child, index := e.findChild(o.children[0])
+	if child == nil {
+		return nil, fmt.Errorf("Failed to find path")
+	}
+
+	out, err := child.remove(o.children[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// We should not remove this child, so copy ourselves and return
+	if out != nil {
+		e.children[index] = out
+		return e, nil
+	}
+
+	// We have to remove this child and this is the last child, remove ourselves
+	if len(e.children) == 1 {
+		return nil, nil
+	}
+	e.children = append(e.children[:index], e.children[index+1:]...)
+	return e, nil
+}
+
+func (e *trieNode) findChild(o *trieNode) (*trieNode, int) {
+	for i, c := range e.children {
+		if c.equals(o) {
+			return c, i
+		}
+	}
+	return nil, -1
+}
+
+func (e *trieNode) merge(o *trieNode) (*trieNode, error) {
 	if e.isLeaf() && o.isLeaf() {
-		return nil, fmt.Errorf("Can't merge two leaf nodes: %s and %s", e.String(), o.String())
+		return nil, fmt.Errorf("Conflicting paths", e.String(), o.String())
 	}
 
 	if e.isLeaf() {
@@ -314,9 +363,10 @@ func (e *trieNode) match(offset int, path string, r request.Request) location.Lo
 
 // Grabs value until separator or next string
 func grabValue(offset int, path string) (string, int) {
-	index := strings.Index(path[offset:], "/")
+	rest := path[offset:]
+	index := strings.Index(rest, "/")
 	if index == -1 {
-		return path[offset:], len(path)
+		return rest, len(path)
 	}
-	return path[offset:index], offset + index
+	return rest[:index], offset + index
 }

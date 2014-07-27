@@ -25,6 +25,22 @@ func (s *TrieSuite) TestParseTrieSuccess(c *C) {
 	c.Assert(t.match(makeReq("http://google.com")), Equals, l.location)
 }
 
+func (s *TrieSuite) TestParseTrieFailures(c *C) {
+	paths := []string{
+		"",                       // empty path
+		"/<uint8:hi>",            // unsupported matcher
+		"/<string:hi:omg:hello>", // unsupported matcher parameters
+	}
+	for _, path := range paths {
+		l := &leaf{
+			location: makeLoc("loc1"),
+		}
+		t, err := parseTrie(path, l)
+		c.Assert(err, NotNil)
+		c.Assert(t, IsNil)
+	}
+}
+
 func (s *TrieSuite) testPathToTrie(c *C, path, trie string) {
 	t, _ := makeTrie(c, path, makeLoc("loc1"))
 	c.Assert(printTrie(t), Equals, trie)
@@ -173,6 +189,18 @@ func (s *TrieSuite) TestMergeAndMatchCases(c *C) {
 		url      string
 		expected string
 	}{
+		// Matching /
+		{
+			[]string{"/"},
+			"http://google.com/",
+			"/",
+		},
+		// Matching / when there's no trailing / in url
+		{
+			[]string{"/"},
+			"http://google.com",
+			"/",
+		},
 		// Choosing longest path
 		{
 			[]string{"/v2/domains/", "/v2/domains/domain1"},
@@ -184,6 +212,18 @@ func (s *TrieSuite) TestMergeAndMatchCases(c *C) {
 			[]string{"/v1/domains/<string:name>", "/v2/domains/<string:name>"},
 			"http://google.com/v2/domains/domain1",
 			"/v2/domains/<string:name>",
+		},
+		// Different combinations of named parameters
+		{
+			[]string{"/v1/domains/<domain>", "/v2/users/<user>/mailboxes/<mbx>"},
+			"http://google.com/v2/users/u1/mailboxes/mbx1",
+			"/v2/users/<user>/mailboxes/<mbx>",
+		},
+		// Something that looks like a pattern, but it's not
+		{
+			[]string{"/v1/<hello"},
+			"http://google.com/v1/<hello",
+			"/v1/<hello",
 		},
 	}
 	for _, tc := range testCases {
@@ -199,6 +239,75 @@ func (s *TrieSuite) TestMergeAndMatchCases(c *C) {
 		}
 		out := t.match(makeReq(tc.url))
 		c.Assert(out.(*location.ConstHttpLocation).Url, Equals, tc.expected)
+	}
+}
+
+func (s *TrieSuite) TestMergeFailures(c *C) {
+	testCases := []struct {
+		trees []string
+	}{
+		// Conflicting paths
+		{
+			[]string{"/", "/"},
+		},
+		// Conflicting paths with patterns of the same type, but different names
+		{
+			[]string{"/hello/<param>", "/hello/<param>"},
+		},
+	}
+	for _, tc := range testCases {
+		t1, _ := makeTrie(c, tc.trees[0], makeLoc(tc.trees[0]))
+		t2, _ := makeTrie(c, tc.trees[1], makeLoc(tc.trees[1]))
+
+		pt1, pt2 := printTrie(t1), printTrie(t2)
+
+		out, err := t1.merge(t2)
+		c.Assert(err, NotNil)
+		c.Assert(out, IsNil)
+
+		// Make sure the failed merge did not result in side effects
+		c.Assert(pt1, Equals, printTrie(t1))
+		c.Assert(pt2, Equals, printTrie(t2))
+	}
+}
+
+func (s *TrieSuite) TestRemoveCases(c *C) {
+	testCases := []struct {
+		trees  []string
+		remove int
+	}{
+		{
+			[]string{"/v1/a", "/v2/b"},
+			0,
+		},
+		{
+			[]string{"/v1/<param>", "/v2/<param>"},
+			1,
+		},
+		{
+			[]string{"/v1/a", "/v2/b", "/v3/c"},
+			1,
+		},
+	}
+	for _, tc := range testCases {
+		t := mergeTries(c, tc.trees)
+
+		toRemove := tc.trees[tc.remove]
+		r, _ := makeTrie(c, toRemove, makeLoc(toRemove))
+
+		// Remove the trie from the merged tries
+		newTrie, err := t.remove(r)
+		c.Assert(err, IsNil)
+		c.Assert(newTrie, NotNil)
+
+		// Now construct the trie that is built of all but
+		// the trie to be removed
+		expressions := cutTrie(tc.remove, tc.trees)
+		shouldBe := mergeTries(c, expressions)
+
+		// The resulting trie should be equal to the trie built
+		// without the removed trie
+		c.Assert(printTrie(newTrie.(*trie)), Equals, printTrie(shouldBe))
 	}
 }
 
@@ -221,6 +330,27 @@ func (s *TrieSuite) BenchmarkMatching(c *C) {
 	for i := 0; i < c.N; i++ {
 		t.match(req)
 	}
+}
+
+func cutTrie(index int, expressions []string) []string {
+	v := make([]string, 0, len(expressions)-1)
+	v = append(v, expressions[:index]...)
+	v = append(v, expressions[index+1:]...)
+	return v
+}
+
+func mergeTries(c *C, expressions []string) *trie {
+	t, _ := makeTrie(c, expressions[0], makeLoc(expressions[0]))
+	for i, expression := range expressions {
+		if i == 0 {
+			continue
+		}
+		t2, _ := makeTrie(c, expression, makeLoc(expression))
+		out, err := t.merge(t2)
+		c.Assert(err, IsNil)
+		t = out.(*trie)
+	}
+	return t
 }
 
 func makeTrie(c *C, path string, location location.Location) (*trie, *leaf) {
