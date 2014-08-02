@@ -21,7 +21,8 @@ type ExpRouter struct {
 
 func NewExpRouter() *ExpRouter {
 	return &ExpRouter{
-		mutex: &sync.RWMutex{},
+		mutex:  &sync.RWMutex{},
+		routes: make(map[string]location.Location),
 	}
 }
 
@@ -51,7 +52,7 @@ func (e *ExpRouter) AddLocation(expr string, l location.Location) error {
 }
 
 func (e *ExpRouter) compile() error {
-	matchers := make([]matcher, len(e.routes))
+	matchers := []matcher{}
 	i := 0
 	for expr, location := range e.routes {
 		matcher, err := parseExpression(expr, location)
@@ -76,7 +77,7 @@ func (e *ExpRouter) compile() error {
 	return nil
 }
 
-func (e *ExpRouter) RemoveLocation(expr string) error {
+func (e *ExpRouter) RemoveLocationByExpression(expr string) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
@@ -84,11 +85,16 @@ func (e *ExpRouter) RemoveLocation(expr string) error {
 	return e.compile()
 }
 
-func (e *ExpRouter) GetLocationByPattern(expr string) location.Location {
-	e.mutex.RLock()
-	defer e.mutex.RUnlock()
+func (e *ExpRouter) RemoveLocationById(id string) error {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
 
-	return e.routes[expr]
+	for expr, l := range e.routes {
+		if l.GetId() == id {
+			delete(e.routes, expr)
+		}
+	}
+	return e.compile()
 }
 
 func (e *ExpRouter) GetLocationById(id string) location.Location {

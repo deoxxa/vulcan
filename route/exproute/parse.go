@@ -5,8 +5,13 @@ import (
 	"github.com/mailgun/vulcan/location"
 	"go/ast"
 	"go/parser"
+	"go/token"
+	"strconv"
 )
 
+// Parses expression in the go language into matchers, e.g.
+// `TrieRoute("/path")` will be parsed into trie matcher
+// Enforces expression to use only registered functions and string literals
 func parseExpression(in string, l location.Location) (matcher, error) {
 	expr, err := parser.ParseExpr(in)
 	if err != nil {
@@ -15,7 +20,7 @@ func parseExpression(in string, l location.Location) (matcher, error) {
 
 	var matcher matcher
 	matcher = &constMatcher{location: l}
-	var item interface{}
+	var call *funcCall
 
 	ast.Inspect(expr, func(n ast.Node) bool {
 		// If error condition has been triggered, stop inspecting.
@@ -24,17 +29,26 @@ func parseExpression(in string, l location.Location) (matcher, error) {
 		}
 		switch x := n.(type) {
 		case *ast.BasicLit:
-			fmt.Printf("Literal: %s\n", x.Value)
-			err = addFunctionArgument(item, x.Value)
+			if call == nil {
+				err = fmt.Errorf("Literals are supported only as function arguments")
+				return false
+			}
+			err = addFunctionArgument(call, x)
 		case *ast.CallExpr:
-			fmt.Println("Call, creating func")
-			item = &funcCall{}
+			if call != nil {
+				err = fmt.Errorf("Nested function calls are not allowed")
+				return false
+			}
+			call = &funcCall{}
 		case *ast.Ident:
-			fmt.Printf("Set function name: %s\n", x.Name)
-			setFunctionName(item, x.Name)
+			if call == nil {
+				err = fmt.Errorf("Unsupported identifier")
+				return false
+			}
+			call.name = x.Name
 		default:
 			if x != nil {
-				fmt.Printf("Unsupported %T", n)
+				err = fmt.Errorf("Unsupported %T", n)
 				return false
 			}
 		}
@@ -43,37 +57,29 @@ func parseExpression(in string, l location.Location) (matcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return createMatcher(matcher, item)
+	return createMatcher(matcher, call)
 }
 
-func addFunctionArgument(in interface{}, val string) error {
-	call, ok := in.(*funcCall)
-	if !ok {
-		return fmt.Errorf("Literals are only allowed as part of function calls")
+func addFunctionArgument(call *funcCall, a *ast.BasicLit) error {
+	if a.Kind != token.STRING {
+		return fmt.Errorf("Only string literals are supported as function arguments")
 	}
-	call.args = append(call.args, val)
+	value, err := strconv.Unquote(a.Value)
+	if err != nil {
+		return fmt.Errorf("Failed to parse argument: %s, error: %s", a.Value, err)
+	}
+	call.args = append(call.args, value)
 	return nil
 }
 
-func setFunctionName(in interface{}, val string) error {
-	call, ok := in.(*funcCall)
-	if !ok {
-		return fmt.Errorf("Only function calls are allowed")
-	}
-	call.name = val
-	return nil
-}
-
-func createMatcher(currentMatcher matcher, in interface{}) (matcher, error) {
-	fn, ok := in.(*funcCall)
-	if !ok {
-		return nil, fmt.Errorf("Expected fucntion, got %T", in)
-	}
-	switch fn.name {
+func createMatcher(currentMatcher matcher, call *funcCall) (matcher, error) {
+	switch call.name {
 	case TrieRouteFn:
-		return makeTrieRouteMatcher(currentMatcher, fn.args)
+		return makeTrieRouteMatcher(currentMatcher, call.args)
+	case RegexpRouteFn:
+		return makeRegexpRouteMatcher(currentMatcher, call.args)
 	}
-	return nil, fmt.Errorf("Unsupported method: %s", fn.name)
+	return nil, fmt.Errorf("Unsupported method: %s", call.name)
 }
 
 type funcCall struct {
@@ -116,7 +122,7 @@ func makeRegexpRouteMatcher(matcher matcher, params []interface{}) (matcher, err
 		matcher = &methodMatcher{methods: args[:len(args)-1], matcher: matcher}
 	}
 
-	t, err := newRegexpMatcher(args[len(args)-1], mapRequestToUrl, matcher)
+	t, err := newRegexpMatcher(args[len(args)-1], mapRequestToPath, matcher)
 	if err != nil {
 		return nil, fmt.Errorf("Error %s(%s) - %s", RegexpRouteFn, params, err)
 	}

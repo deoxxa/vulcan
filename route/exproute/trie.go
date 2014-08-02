@@ -15,13 +15,12 @@ func init() {
 	reParam = regexp.MustCompile("^<([^/]+)>")
 }
 
-// Trie http://en.wikipedia.org/wiki/Trie for url matching with support for named parameters
+// Trie http://en.wikipedia.org/wiki/Trie for url matching with support of named parameters
 type trie struct {
 	root *trieNode
 }
 
-// Takes the expression with url and the node that corresponds to this expression
-// and returns parsed trie
+// Takes the expression with url and the node that corresponds to this expression and returns parsed trie
 func parseTrie(expression string, reqMatcher matcher) (*trie, error) {
 	t := &trie{
 		root: &trieNode{},

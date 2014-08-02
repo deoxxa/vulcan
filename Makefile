@@ -14,8 +14,8 @@ clean:
 test-package: clean
 	go test -v ./$(p)
 
-bench: clean
-	go test -test.benchmem  -gocheck.b -test.bench=.
+bench-package: clean
+	go test ./$(p) -check.bmem  -check.b -test.bench=.
 
 cover-package: clean
 	go test -v ./$(p)  -coverprofile=/tmp/coverage.out
