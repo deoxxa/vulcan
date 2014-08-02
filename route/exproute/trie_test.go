@@ -32,7 +32,7 @@ func (s *TrieSuite) TestParseTrieFailures(c *C) {
 		"/<string:hi:omg:hello>", // unsupported matcher parameters
 	}
 	for _, path := range paths {
-		l := &leaf{
+		l := &constMatcher{
 			location: makeLoc("loc1"),
 		}
 		t, err := parseTrie(path, l)
@@ -352,8 +352,8 @@ func mergeTries(c *C, expressions []string) *trie {
 	return t
 }
 
-func makeTrie(c *C, path string, location location.Location) (*trie, *leaf) {
-	l := &leaf{
+func makeTrie(c *C, path string, location location.Location) (*trie, *constMatcher) {
+	l := &constMatcher{
 		location: location,
 	}
 	t, err := parseTrie(path, l)
