@@ -137,3 +137,42 @@ func (s *RouteSuite) TestMixedOperations(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(out, IsNil)
 }
+
+func (s *RouteSuite) TestMatchByMethod(c *C) {
+	r := NewExpRouter()
+
+	l1 := makeLoc("loc1")
+	c.Assert(r.AddLocation(`TrieRoute("POST", "/r1")`, l1), IsNil)
+
+	l2 := makeLoc("loc2")
+	c.Assert(r.AddLocation(`TrieRoute("GET", "/r1")`, l2), IsNil)
+
+	req := makeReq("http://google.com/r1")
+	req.GetHttpRequest().Method = "POST"
+
+	out, err := r.Route(req)
+	c.Assert(err, IsNil)
+	c.Assert(out, Equals, l1)
+
+	req.GetHttpRequest().Method = "GET"
+	out, err = r.Route(req)
+	c.Assert(err, IsNil)
+	c.Assert(out, Equals, l2)
+}
+
+func (s *RouteSuite) TestMatchLongestPath(c *C) {
+	r := NewExpRouter()
+
+	l1 := makeLoc("loc1")
+	c.Assert(r.AddLocation(`TrieRoute("POST", "/r")`, l1), IsNil)
+
+	l2 := makeLoc("loc2")
+	c.Assert(r.AddLocation(`TrieRoute("POST", "/r/hello")`, l2), IsNil)
+
+	req := makeReq("http://google.com/r/hello")
+	req.GetHttpRequest().Method = "POST"
+
+	out, err := r.Route(req)
+	c.Assert(err, IsNil)
+	c.Assert(out, Equals, l2)
+}

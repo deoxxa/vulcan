@@ -183,6 +183,23 @@ root
 	c.Assert(t3.match(makeReq("http://google.com/a/")), IsNil)
 }
 
+func (s *TrieSuite) TestMergeTriesWithSamePath(c *C) {
+	t1, l1 := makeTrie(c, "/a", makeLoc("loc1"))
+	t2, _ := makeTrie(c, "/a", makeLoc("loc2"))
+
+	t3, err := t1.merge(t2)
+	c.Assert(err, IsNil)
+
+	expected := `
+root
+ node(/)
+  leaf(a)
+`
+	c.Assert(printTrie(t3.(*trie)), Equals, expected)
+	// The first location will match as it will always go first
+	c.Assert(t3.match(makeReq("http://google.com/a")), Equals, l1.location)
+}
+
 func (s *TrieSuite) TestMergeAndMatchCases(c *C) {
 	testCases := []struct {
 		trees    []string
@@ -239,75 +256,6 @@ func (s *TrieSuite) TestMergeAndMatchCases(c *C) {
 		}
 		out := t.match(makeReq(tc.url))
 		c.Assert(out.(*location.ConstHttpLocation).Url, Equals, tc.expected)
-	}
-}
-
-func (s *TrieSuite) TestMergeFailures(c *C) {
-	testCases := []struct {
-		trees []string
-	}{
-		// Conflicting paths
-		{
-			[]string{"/", "/"},
-		},
-		// Conflicting paths with patterns of the same type, but different names
-		{
-			[]string{"/hello/<param>", "/hello/<param>"},
-		},
-	}
-	for _, tc := range testCases {
-		t1, _ := makeTrie(c, tc.trees[0], makeLoc(tc.trees[0]))
-		t2, _ := makeTrie(c, tc.trees[1], makeLoc(tc.trees[1]))
-
-		pt1, pt2 := printTrie(t1), printTrie(t2)
-
-		out, err := t1.merge(t2)
-		c.Assert(err, NotNil)
-		c.Assert(out, IsNil)
-
-		// Make sure the failed merge did not result in side effects
-		c.Assert(pt1, Equals, printTrie(t1))
-		c.Assert(pt2, Equals, printTrie(t2))
-	}
-}
-
-func (s *TrieSuite) TestRemoveCases(c *C) {
-	testCases := []struct {
-		trees  []string
-		remove int
-	}{
-		{
-			[]string{"/v1/a", "/v2/b"},
-			0,
-		},
-		{
-			[]string{"/v1/<param>", "/v2/<param>"},
-			1,
-		},
-		{
-			[]string{"/v1/a", "/v2/b", "/v3/c"},
-			1,
-		},
-	}
-	for _, tc := range testCases {
-		t := mergeTries(c, tc.trees)
-
-		toRemove := tc.trees[tc.remove]
-		r, _ := makeTrie(c, toRemove, makeLoc(toRemove))
-
-		// Remove the trie from the merged tries
-		newTrie, err := t.remove(r)
-		c.Assert(err, IsNil)
-		c.Assert(newTrie, NotNil)
-
-		// Now construct the trie that is built of all but
-		// the trie to be removed
-		expressions := cutTrie(tc.remove, tc.trees)
-		shouldBe := mergeTries(c, expressions)
-
-		// The resulting trie should be equal to the trie built
-		// without the removed trie
-		c.Assert(printTrie(newTrie.(*trie)), Equals, printTrie(shouldBe))
 	}
 }
 

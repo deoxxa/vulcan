@@ -56,20 +56,6 @@ func (p *trie) merge(m matcher) (matcher, error) {
 	return &trie{root: root}, nil
 }
 
-// Removes the simple trie from the node, can work only with simple tries without multiple branches per node,
-// e.g. h->e->l->l->o can be removed, trie that matches multiple words can not be removed and remove operation will result in error.
-func (p *trie) remove(m matcher) (matcher, error) {
-	other, ok := m.(*trie)
-	if !ok {
-		return nil, fmt.Errorf("Can't remove %T from %T", m, p)
-	}
-	root, err := p.root.remove(other.root)
-	if err != nil {
-		return nil, err
-	}
-	return &trie{root: root}, nil
-}
-
 // Takes the request and returns the location if the request path matches any of it's paths
 // returns nil if none of the requests matches
 func (p *trie) match(r request.Request) location.Location {
@@ -93,11 +79,11 @@ type trieNode struct {
 	// If present, means that this node is a pattern matcher
 	patternMatcher patternMatcher
 	// If present it means this node contains potential match for a request, and this is a leaf node.
-	requestMatcher matcher
+	requestMatchers []matcher
 }
 
 func (e *trieNode) isLeaf() bool {
-	return e.requestMatcher != nil
+	return len(e.requestMatchers) != 0
 }
 
 func (e *trieNode) isRoot() bool {
@@ -134,50 +120,9 @@ func (e *trieNode) equals(o *trieNode) bool {
 		((e.patternMatcher != nil && o.patternMatcher != nil) && e.patternMatcher.equals(o.patternMatcher)) // both nodes have equal matchers
 }
 
-func (e *trieNode) remove(o *trieNode) (*trieNode, error) {
-	if e.isLeaf() {
-		return nil, nil
-	}
-	if o.isLeaf() {
-		return nil, fmt.Errorf("Failed to find path")
-	}
-
-	child, index := e.findChild(o.children[0])
-	if child == nil {
-		return nil, fmt.Errorf("Failed to find path")
-	}
-
-	out, err := child.remove(o.children[0])
-	if err != nil {
-		return nil, err
-	}
-
-	// We should not remove this child, so copy ourselves and return
-	if out != nil {
-		e.children[index] = out
-		return e, nil
-	}
-
-	// We have to remove this child and this is the last child, remove ourselves
-	if len(e.children) == 1 {
-		return nil, nil
-	}
-	e.children = append(e.children[:index], e.children[index+1:]...)
-	return e, nil
-}
-
-func (e *trieNode) findChild(o *trieNode) (*trieNode, int) {
-	for i, c := range e.children {
-		if c.equals(o) {
-			return c, i
-		}
-	}
-	return nil, -1
-}
-
 func (e *trieNode) merge(o *trieNode) (*trieNode, error) {
 	if e.isLeaf() && o.isLeaf() {
-		return nil, fmt.Errorf("Conflicting paths", e.String(), o.String())
+		return mergeLeafs(e, o)
 	}
 
 	if e.isLeaf() {
@@ -221,17 +166,17 @@ func (e *trieNode) merge(o *trieNode) (*trieNode, error) {
 	}
 
 	return &trieNode{
-		char:           e.char,
-		children:       children,
-		patternMatcher: e.patternMatcher,
-		requestMatcher: e.requestMatcher,
+		char:            e.char,
+		children:        children,
+		patternMatcher:  e.patternMatcher,
+		requestMatchers: e.requestMatchers,
 	}, nil
 }
 
 func (p *trieNode) parseExpression(offset int, pattern string, requestMatcher matcher) error {
 	// We are the last element, so we are the matching node
 	if offset >= len(pattern)-1 {
-		p.requestMatcher = requestMatcher
+		p.requestMatchers = []matcher{requestMatcher}
 		return nil
 	}
 
@@ -254,12 +199,27 @@ func (p *trieNode) parseExpression(offset int, pattern string, requestMatcher ma
 	}
 }
 
+func mergeLeafs(a *trieNode, b *trieNode) (*trieNode, error) {
+	if len(a.children) != 0 || len(b.children) != 0 {
+		return nil, fmt.Errorf("Can't merge matching nodes with children")
+	}
+	matchers := make([]matcher, 0, len(a.requestMatchers)+len(b.requestMatchers))
+	matchers = append(matchers, a.requestMatchers...)
+	matchers = append(matchers, b.requestMatchers...)
+	return &trieNode{
+		char:            a.char,
+		children:        a.children,
+		patternMatcher:  a.patternMatcher,
+		requestMatchers: matchers,
+	}, nil
+}
+
 func mergeWithLeaf(base *trieNode, leaf *trieNode) (*trieNode, error) {
 	n := &trieNode{
-		char:           base.char,
-		children:       make([]*trieNode, len(base.children)),
-		patternMatcher: base.patternMatcher,
-		requestMatcher: leaf.requestMatcher,
+		char:            base.char,
+		children:        make([]*trieNode, len(base.children)),
+		patternMatcher:  base.patternMatcher,
+		requestMatchers: leaf.requestMatchers,
 	}
 	copy(n.children, base.children)
 	return n, nil
@@ -366,8 +326,12 @@ func (e *trieNode) match(offset int, path string, r request.Request) location.Lo
 		return nil
 	}
 	// This is a leaf node and we are at the last character of the pattern
-	if e.requestMatcher != nil && newOffset == len(path) {
-		return e.requestMatcher.match(r)
+	if len(e.requestMatchers) != 0 && newOffset == len(path) {
+		for _, matcher := range e.requestMatchers {
+			if l := matcher.match(r); l != nil {
+				return l
+			}
+		}
 	}
 	// Check for the match in child nodes
 	for _, c := range e.children {
